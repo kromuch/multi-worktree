@@ -13,27 +13,49 @@ struct SpinUpView: View {
     @State private var openClaude = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Spin up · \(group.name)").font(.headline)
-            HStack {
-                TextField("Feature name (branch)", text: $featureText).onSubmit { check() }
+        VStack(alignment: .leading, spacing: 14) {
+            ScreenHeader(symbol: "bolt.fill", title: "Spin up", subtitle: group.name,
+                         onBack: { model.screen = .home })
+
+            HStack(spacing: 8) {
+                TextField("Feature name (branch)", text: $featureText)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { check() }
                     .disabled(checking)
-                Button(checking ? "Checking…" : "Check") { check() }
-                    .disabled(featureText.isEmpty || checking)
+                Button { check() } label: {
+                    if checking {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Check")
+                    }
+                }
+                .buttonStyle(.glass)
+                .disabled(featureText.isEmpty || checking)
             }
+
             if let validationError {
-                Text(validationError).foregroundStyle(.red).font(.caption)
+                InlineBanner(text: validationError)
             }
-            ForEach(group.repos, id: \.path) { repo in
-                repoRow(repo)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(group.repos, id: \.path) { repo in
+                    repoRow(repo)
+                }
             }
-            Toggle("Open Claude when done", isOn: $openClaude)
-            HStack {
-                Button("Back") { model.screen = .home }
+
+            Toggle(isOn: $openClaude) {
+                Label("Open Claude when done", systemImage: "sparkles")
+            }
+            .toggleStyle(.switch)
+
+            FooterBar {
                 Spacer()
-                Button(model.isBusy ? "Working…" : "Spin up") { Task { await run() } }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed)
+                Button { Task { await run() } } label: {
+                    Label(model.isBusy ? "Working…" : "Spin up", systemImage: "bolt.fill")
+                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed)
             }
         }
     }
@@ -45,34 +67,62 @@ struct SpinUpView: View {
 
     @ViewBuilder
     private func repoRow(_ repo: RepoEntry) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(repo.basename).bold()
-                if repo.isMain { Text("main").font(.caption).foregroundStyle(.secondary) }
+        GroupedCard(spacing: 6) {
+            HStack(spacing: 6) {
+                Text(repo.basename).font(.callout.weight(.semibold))
+                if repo.isMain {
+                    StatusChip(text: "main", color: .accentColor)
+                }
+                Spacer(minLength: 6)
+                statusIcon(for: repo)
             }
-            switch preflights[repo.path] {
-            case .success(let p)?:
-                Picker("Base", selection: Binding(get: { choices[repo.path] ?? .defaultBranch }, set: { choices[repo.path] = $0 })) {
-                    Text("\(p.remote)/\(p.defaultBranch) (clean default)").tag(BaseChoice.defaultBranch)
-                    if p.offersCurrentBranchBase, let current = p.currentBranch {
-                        Text("\(current) (current branch, local tip)").tag(BaseChoice.currentBranch)
-                    }
+            content(for: repo)
+        }
+    }
+
+    @ViewBuilder
+    private func statusIcon(for repo: RepoEntry) -> some View {
+        switch preflights[repo.path] {
+        case .success?:
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failure?:
+            Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+        case nil:
+            if checking {
+                ProgressView().controlSize(.small)
+            } else {
+                EmptyView()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for repo: RepoEntry) -> some View {
+        switch preflights[repo.path] {
+        case .success(let p)?:
+            Picker("Base", selection: Binding(
+                get: { choices[repo.path] ?? .defaultBranch },
+                set: { choices[repo.path] = $0 }
+            )) {
+                Text("\(p.remote)/\(p.defaultBranch) — clean default").tag(BaseChoice.defaultBranch)
+                if p.offersCurrentBranchBase, let current = p.currentBranch {
+                    Text("\(current) — current branch, local tip").tag(BaseChoice.currentBranch)
                 }
-                .pickerStyle(.menu)
-                ForEach(p.notices, id: \.self) { notice in
-                    Text("Warning: \(notice)").font(.caption).foregroundStyle(.orange)
-                }
-            case .failure(let error)?:
-                Text("Failed: \(String(describing: error))").font(.caption).foregroundStyle(.red)
-            case nil:
-                if checking {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Checking…").font(.caption).foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Enter a feature name and press Check.").font(.caption).foregroundStyle(.secondary)
-                }
+            }
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            ForEach(p.notices, id: \.self) { notice in
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        case .failure(let error)?:
+            Label("Failed: \(String(describing: error))", systemImage: "xmark.octagon.fill")
+                .font(.caption).foregroundStyle(.red)
+        case nil:
+            if checking {
+                HintText("Checking…")
+            } else {
+                HintText("Enter a feature name and press Check.", symbol: "arrow.up")
             }
         }
     }

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "MultiWorktree",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "MWTKit", targets: ["MWTKit"]),
         .executable(name: "MultiWorktree", targets: ["MultiWorktree"]),
