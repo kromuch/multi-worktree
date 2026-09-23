@@ -7,7 +7,7 @@ import Testing
         RepoPreflight(repo: RepoEntry(path: "/r/ari", isMain: true), commonDir: "/r/ari/.git", remote: "origin",
                       hasRemote: hasRemote, defaultBranch: "main", currentBranch: current,
                       remoteDefaultExists: remoteDefaultExists, localFeatureBranchExists: localFeature,
-                      remoteFeatureBranchExists: remoteFeature, notices: [])
+                      remoteFeatureBranchExists: remoteFeature, notices: [], blockingReason: nil)
     }
 
     @Test func defaultBaseIsRemoteTipWhenAvailable() {

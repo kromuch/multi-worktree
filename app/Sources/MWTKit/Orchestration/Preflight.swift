@@ -25,6 +25,7 @@ public struct RepoPreflight: Equatable, Sendable {
     public let localFeatureBranchExists: Bool
     public let remoteFeatureBranchExists: Bool
     public let notices: [String]
+    public let blockingReason: String?
 
     public var offersCurrentBranchBase: Bool {
         guard let currentBranch else { return false }
@@ -124,13 +125,18 @@ public struct Preflight: Sendable {
             if let behind = git.revListCount("\(current)..\(upstream)", in: dir), behind > 0 { notices.append("\(current) is \(behind) commit(s) behind \(upstream)") }
         }
         let localFeature = git.localBranchExists(feature.branch, in: dir)
-        if localFeature { notices.append("branch \(feature.branch) already exists and will be reused") }
+        let occupying = (try? git.worktrees(in: dir))?.first { $0.branch == feature.branch && !$0.isPrunable }
+        var blockingReason: String?
+        if let occupying {
+            blockingReason = "branch \(feature.branch) is already checked out at \(occupying.path); git allows only one worktree per branch"
+        }
+        if localFeature, blockingReason == nil { notices.append("branch \(feature.branch) already exists and will be reused") }
         let remoteFeature = hasRemote && git.commitExists("\(remote)/\(feature.branch)", in: dir)
         if remoteFeature, !localFeature { notices.append("\(remote)/\(feature.branch) exists; a tracking worktree will be created") }
 
         return RepoPreflight(repo: repo, commonDir: commonDir.path, remote: remote, hasRemote: hasRemote,
                              defaultBranch: defaultBranch, currentBranch: current,
                              remoteDefaultExists: remoteDefaultExists, localFeatureBranchExists: localFeature,
-                             remoteFeatureBranchExists: remoteFeature, notices: notices)
+                             remoteFeatureBranchExists: remoteFeature, notices: notices, blockingReason: blockingReason)
     }
 }

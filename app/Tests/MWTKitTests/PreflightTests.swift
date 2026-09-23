@@ -32,6 +32,33 @@ import Testing
         #expect(p.notices.contains { $0.contains("reused") })
     }
 
+    @Test func blocksWhenFeatureBranchCheckedOutInAnotherWorktree() throws {
+        let f = try GitFixture()
+        let other = f.root.appending(path: "other-NODE-1")
+        try f.git.run(["worktree", "add", "--quiet", "-b", "NODE-1", other.path], in: f.repo)
+        let p = try Preflight(git: f.git).run(repo: RepoEntry(path: f.repo.path, isMain: true), feature: feature)
+        #expect(p.localFeatureBranchExists)
+        #expect(p.blockingReason?.contains("NODE-1") == true)
+        #expect(!p.notices.contains { $0.contains("reused") })
+    }
+
+    @Test func blocksWhenFeatureBranchAlreadyHasAWorktree() throws {
+        let f = try GitFixture()
+        let managed = f.root.appending(path: "managed-NODE-1")
+        try f.git.run(["worktree", "add", "--quiet", "-b", "NODE-1", managed.path], in: f.repo)
+        let p = try Preflight(git: f.git).run(repo: RepoEntry(path: f.repo.path, isMain: true), feature: feature)
+        #expect(p.blockingReason?.contains(managed.path) == true)
+    }
+
+    @Test func doesNotBlockWhenFeatureBranchExistsButIsNotCheckedOut() throws {
+        let f = try GitFixture()
+        try f.git.run(["branch", "NODE-1"], in: f.repo)
+        let p = try Preflight(git: f.git).run(repo: RepoEntry(path: f.repo.path, isMain: true), feature: feature)
+        #expect(p.blockingReason == nil)
+        #expect(p.localFeatureBranchExists)
+        #expect(p.notices.contains { $0.contains("reused") })
+    }
+
     @Test func detectsRemoteFeatureBranchAndOffersCurrentBranch() throws {
         let f = try GitFixture()
         try f.git.run(["push", "--quiet", "origin", "main:NODE-1"], in: f.repo)
