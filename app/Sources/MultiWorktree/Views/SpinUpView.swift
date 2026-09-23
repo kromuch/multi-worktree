@@ -21,6 +21,7 @@ struct SpinUpView: View {
                 TextField("Feature name (branch)", text: $featureText)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { check() }
+                    .onChange(of: featureText) { _, _ in invalidateCheck() }
                     .disabled(checking)
                 Button { check() } label: {
                     if checking {
@@ -55,7 +56,7 @@ struct SpinUpView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed)
+                .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed || anyPreflightBlocked)
             }
         }
     }
@@ -63,6 +64,13 @@ struct SpinUpView: View {
     private var mainPreflightFailed: Bool {
         guard let main = group.main, case .success? = preflights[main.path] else { return true }
         return false
+    }
+
+    private var anyPreflightBlocked: Bool {
+        preflights.values.contains { result in
+            if case .success(let p) = result { return p.blockingReason != nil }
+            return false
+        }
     }
 
     @ViewBuilder
@@ -83,8 +91,12 @@ struct SpinUpView: View {
     @ViewBuilder
     private func statusIcon(for repo: RepoEntry) -> some View {
         switch preflights[repo.path] {
-        case .success?:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .success(let p)?:
+            if p.blockingReason != nil {
+                Image(systemName: "exclamationmark.octagon.fill").foregroundStyle(.red)
+            } else {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            }
         case .failure?:
             Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
         case nil:
@@ -100,20 +112,26 @@ struct SpinUpView: View {
     private func content(for repo: RepoEntry) -> some View {
         switch preflights[repo.path] {
         case .success(let p)?:
-            Picker("Base", selection: Binding(
-                get: { choices[repo.path] ?? .defaultBranch },
-                set: { choices[repo.path] = $0 }
-            )) {
-                Text("\(p.remote)/\(p.defaultBranch) — clean default").tag(BaseChoice.defaultBranch)
-                if p.offersCurrentBranchBase, let current = p.currentBranch {
-                    Text("\(current) — current branch, local tip").tag(BaseChoice.currentBranch)
+            if let blockingReason = p.blockingReason {
+                Label(blockingReason, systemImage: "exclamationmark.octagon.fill")
+                    .font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Picker("Base", selection: Binding(
+                    get: { choices[repo.path] ?? .defaultBranch },
+                    set: { choices[repo.path] = $0 }
+                )) {
+                    Text("\(p.remote)/\(p.defaultBranch) — clean default").tag(BaseChoice.defaultBranch)
+                    if p.offersCurrentBranchBase, let current = p.currentBranch {
+                        Text("\(current) — current branch, local tip").tag(BaseChoice.currentBranch)
+                    }
                 }
-            }
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            ForEach(p.notices, id: \.self) { notice in
-                Label(notice, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                ForEach(p.notices, id: \.self) { notice in
+                    Label(notice, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
         case .failure(let error)?:
             Label("Failed: \(String(describing: error))", systemImage: "xmark.octagon.fill")
@@ -127,9 +145,17 @@ struct SpinUpView: View {
         }
     }
 
+    private func invalidateCheck() {
+        feature = nil
+        preflights = [:]
+        validationError = nil
+        checking = false
+    }
+
     private func check() {
+        let parsed: FeatureName
         do {
-            feature = try FeatureName.parse(featureText)
+            parsed = try FeatureName.parse(featureText)
             validationError = nil
         } catch {
             feature = nil
@@ -137,11 +163,14 @@ struct SpinUpView: View {
             validationError = "Invalid feature name: \(error)"
             return
         }
-        guard let feature else { return }
+        feature = parsed
+        let checkedText = featureText
         preflights = [:]
         checking = true
         Task {
-            preflights = await model.preflight(group: group, feature: feature)
+            let result = await model.preflight(group: group, feature: parsed)
+            guard featureText == checkedText else { return }
+            preflights = result
             checking = false
         }
     }
