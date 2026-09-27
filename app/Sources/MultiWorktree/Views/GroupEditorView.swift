@@ -53,11 +53,12 @@ struct GroupEditorView: View {
                         Label("Add", systemImage: "plus")
                     }
                     .buttonStyle(.glass)
-                    .disabled(newPath.isEmpty)
+                    .disabled(newPath.isEmpty || !model.gitReady)
                     Button { choose() } label: {
                         Label("Choose…", systemImage: "folder")
                     }
                     .buttonStyle(.glass)
+                    .disabled(!model.gitReady)
                 }
             }
 

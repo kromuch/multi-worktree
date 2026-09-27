@@ -32,6 +32,10 @@ struct HomeView: View {
                          title: "MultiWorktree",
                          subtitle: "Coordinated git worktrees")
 
+            DependencyNotices()
+
+            UpdateBanner()
+
             groupsSection
             featuresSection
 
@@ -78,6 +82,7 @@ struct HomeView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .controlSize(.small)
+                .disabled(!model.gitReady)
                 Button { model.screen = .editGroup(group) } label: {
                     Image(systemName: "pencil")
                 }
@@ -123,13 +128,15 @@ struct HomeView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .help("Open Claude in the main worktree")
+                .disabled(!model.claudeAvailable)
+                .help(model.claudeAvailable ? "Open Claude in the main worktree" : AppModel.claudeMissingHelp)
                 Button { model.screen = .tearDown(manifest) } label: {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
                 .tint(.red)
+                .disabled(!model.gitReady)
                 .help("Tear down")
             }
         }
@@ -149,9 +156,15 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("MultiWorktree \(KitInfo.version)")
                     .font(.caption2).foregroundStyle(.secondary)
-                Text("git · \(model.git.gitPath)")
+                    .help(model.updateHelp)
+                Text(model.gitFooterText)
                     .font(.caption2).foregroundStyle(.tertiary)
                     .lineLimit(1).truncationMode(.middle)
+                if let pathFooter = model.pathFooter {
+                    Text(pathFooter.text)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .help(pathFooter.help)
+                }
             }
             Spacer()
             Button { NSApplication.shared.terminate(nil) } label: {

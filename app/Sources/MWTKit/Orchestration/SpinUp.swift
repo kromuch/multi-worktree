@@ -186,7 +186,16 @@ public struct SpinUp: Sendable {
         if let warning = base.warning { reasons.append(warning) }
         let plan = BranchResolution.plan(feature: feature.branch, preflight: preflight, baseRef: base.ref)
         try fm.createDirectory(at: worktree.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try env.git.worktreeAdd(plan, at: worktree, in: original)
+        var hookFailure: String?
+        do {
+            try env.git.worktreeAdd(plan, at: worktree, in: original)
+        } catch let error as GitError {
+            let registered = (try? env.git.worktrees(in: original)) ?? []
+            guard registered.contains(where: { PathCompare.same($0.path, worktree.path) && $0.branch == feature.branch }) else {
+                throw error
+            }
+            hookFailure = HookFailure.reason(for: error)
+        }
         switch plan {
         case .reuseLocal(let branch):
             entry.baseRef = branch
@@ -207,6 +216,25 @@ public struct SpinUp: Sendable {
             reasons.append("copied \(files.count) .worktreeinclude file(s)")
         }
         entry.status = .created
+        if let hookFailure {
+            reasons.append(hookFailure)
+            return RepoOutcome(repoPath: repo.path, label: .warned, reasons: reasons)
+        }
         return RepoOutcome(repoPath: repo.path, label: .created, reasons: reasons)
+    }
+}
+
+enum HookFailure {
+    static let progressPrefixes = ["Preparing worktree", "HEAD is now at", "Updating files:"]
+
+    static func reason(for error: GitError) -> String {
+        let lines = error.stderr
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { line in !line.isEmpty && !progressPrefixes.contains { line.hasPrefix($0) } }
+            .suffix(3)
+        let detail = lines.isEmpty ? "" : ": " + lines.joined(separator: " ")
+        return "post-checkout hook failed (exit \(error.status))\(detail). "
+            + "MultiWorktree runs git with your login-shell PATH (or the fallback PATH); tools the hook needs may be missing."
     }
 }

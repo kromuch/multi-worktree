@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -u
+
+. "$(dirname "$0")/version-lib.sh" || { echo "MultiWorktree: $(dirname "$0")/version-lib.sh is missing; cannot check the version." >&2; exit 1; }
+
+FILE="$MWT_VERSION_FILE"
+
+BASE="$(version_base)"
+if [ -z "$BASE" ]; then
+  exit 0
+fi
+
+BASE_VERSION="$(git show "$BASE:$FILE" 2>/dev/null | read_version)"
+if ! is_semver "$BASE_VERSION"; then
+  echo "MultiWorktree: could not read the version on $BASE; version check skipped." >&2
+  exit 0
+fi
+
+STAGED_VERSION="$(git show ":$FILE" 2>/dev/null | read_version)"
+if ! is_semver "$STAGED_VERSION"; then
+  echo "MultiWorktree: could not read an X.Y.Z version from the staged $FILE." >&2
+  exit 1
+fi
+
+if newer "$STAGED_VERSION" "$BASE_VERSION"; then
+  exit 0
+fi
+
+cat >&2 <<EOF
+MultiWorktree: version $STAGED_VERSION is not newer than $BASE ($BASE_VERSION).
+Everything not yet on main needs one version bump:
+  app/scripts/bump-version.sh && git add $FILE
+Use git commit --no-verify only in an emergency.
+EOF
+exit 1

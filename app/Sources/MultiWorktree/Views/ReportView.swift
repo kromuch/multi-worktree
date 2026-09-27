@@ -31,6 +31,8 @@ struct ReportView: View {
                         Label("Open Claude anyway", systemImage: "sparkles")
                     }
                     .buttonStyle(.glass)
+                    .disabled(!model.claudeAvailable)
+                    .help(model.claudeAvailable ? "Open Claude in the main worktree" : AppModel.claudeMissingHelp)
                 }
             } else if let error = model.lastError {
                 InlineBanner(text: error, selectable: true)

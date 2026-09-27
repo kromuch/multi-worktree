@@ -34,7 +34,7 @@ struct TearDownView: View {
                 .buttonStyle(.glassProminent)
                 .tint(.red)
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.isBusy)
+                .disabled(model.isBusy || !model.gitReady)
             }
         }
     }

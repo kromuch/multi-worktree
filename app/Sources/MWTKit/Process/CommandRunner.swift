@@ -14,62 +14,130 @@ public struct CommandResult: Equatable, Sendable {
     public var succeeded: Bool { status == 0 }
 }
 
-public protocol CommandRunning: Sendable {
-    func run(_ executable: String, _ arguments: [String], cwd: URL?, extraEnvironment: [String: String]) throws -> CommandResult
-}
+public struct CommandTimeout: Error, Equatable, Sendable, CustomStringConvertible {
+    public let executable: String
+    public let seconds: Double
 
-public enum ToolEnvironment {
-    public static let path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    public static let gitCandidates = ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]
-
-    public static func childEnvironment(base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var env = base
-        env["PATH"] = path
-        if env["HOME"] == nil { env["HOME"] = NSHomeDirectory() }
-        return env
+    public init(executable: String, seconds: Double) {
+        self.executable = executable
+        self.seconds = seconds
     }
 
-    public static func resolveGit() -> String? {
-        gitCandidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    public var description: String { "\(executable) did not finish in \(Self.format(seconds)) s" }
+
+    public static func format(_ seconds: Double) -> String {
+        String(format: "%g", seconds)
+    }
+}
+
+public protocol CommandRunning: Sendable {
+    func run(_ executable: String, _ arguments: [String], cwd: URL?, extraEnvironment: [String: String],
+             timeout: Duration?) throws -> CommandResult
+}
+
+public extension CommandRunning {
+    func run(_ executable: String, _ arguments: [String], cwd: URL?, extraEnvironment: [String: String]) throws -> CommandResult {
+        try run(executable, arguments, cwd: cwd, extraEnvironment: extraEnvironment, timeout: nil)
     }
 }
 
 final class DataBox: @unchecked Sendable {
-    var data = Data()
+    private let lock = NSLock()
+    private var storage = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        storage.append(chunk)
+        lock.unlock()
+    }
+
+    var data: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+}
+
+final class PipeDrain: @unchecked Sendable {
+    let pipe = Pipe()
+    let box = DataBox()
+    let done = DispatchSemaphore(value: 0)
+
+    func start() {
+        Thread.detachNewThread { [self] in
+            let descriptor = pipe.fileHandleForReading.fileDescriptor
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            while true {
+                let count = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress, $0.count) }
+                if count > 0 {
+                    box.append(Data(buffer[0..<count]))
+                } else if count == 0 || errno != EINTR {
+                    break
+                }
+            }
+            done.signal()
+        }
+    }
 }
 
 public struct ProcessRunner: CommandRunning {
-    public init() {}
+    static let drainGrace = 0.5
 
-    public func run(_ executable: String, _ arguments: [String], cwd: URL?, extraEnvironment: [String: String]) throws -> CommandResult {
+    public let environment: ToolEnvironment
+
+    public init(environment: ToolEnvironment = .fixed) {
+        self.environment = environment
+    }
+
+    public func run(_ executable: String, _ arguments: [String], cwd: URL?, extraEnvironment: [String: String],
+                    timeout: Duration?) throws -> CommandResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         process.currentDirectoryURL = cwd
-        var env = ToolEnvironment.childEnvironment()
+        var env = environment.childEnvironment()
         for (key, value) in extraEnvironment { env[key] = value }
         process.environment = env
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        let stdout = PipeDrain()
+        let stderr = PipeDrain()
+        process.standardOutput = stdout.pipe
+        process.standardError = stderr.pipe
         process.standardInput = FileHandle.nullDevice
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         try process.run()
+        stdout.start()
+        stderr.start()
 
-        let stderrBox = DataBox()
-        let stderrDescriptor = stderrPipe.fileHandleForReading.fileDescriptor
-        let group = DispatchGroup()
-        group.enter()
-        Thread.detachNewThread {
-            stderrBox.data = FileHandle(fileDescriptor: stderrDescriptor).readDataToEndOfFile()
-            group.leave()
+        if let timeout {
+            let seconds = Self.seconds(timeout)
+            if exited.wait(timeout: .now() + seconds) == .timedOut {
+                Self.stop(process, exited: exited)
+                throw CommandTimeout(executable: executable, seconds: seconds)
+            }
+            _ = stdout.done.wait(timeout: .now() + Self.drainGrace)
+            _ = stderr.done.wait(timeout: .now() + Self.drainGrace)
+        } else {
+            stdout.done.wait()
+            stderr.done.wait()
+            exited.wait()
         }
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        group.wait()
-        process.waitUntilExit()
         return CommandResult(
             status: process.terminationStatus,
-            stdout: String(decoding: stdoutData, as: UTF8.self),
-            stderr: String(decoding: stderrBox.data, as: UTF8.self))
+            stdout: String(decoding: stdout.box.data, as: UTF8.self),
+            stderr: String(decoding: stderr.box.data, as: UTF8.self))
+    }
+
+    static func seconds(_ duration: Duration) -> Double {
+        let parts = duration.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    }
+
+    static func stop(_ process: Process, exited: DispatchSemaphore) {
+        process.terminate()
+        if exited.wait(timeout: .now() + 1) == .timedOut {
+            kill(process.processIdentifier, SIGKILL)
+            _ = exited.wait(timeout: .now() + 0.5)
+        }
     }
 }

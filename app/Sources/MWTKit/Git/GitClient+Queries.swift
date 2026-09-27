@@ -124,4 +124,13 @@ public extension GitClient {
         guard result.succeeded else { throw GitError(arguments: ["ls-files"], status: result.status, stderr: result.stderr) }
         return result.stdout.split(separator: "\0").map(String.init)
     }
+
+    func whollyIgnoredDirectories(in directory: URL) throws -> [String] {
+        let result = try execute(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], in: directory, environment: [:])
+        guard result.succeeded else { throw GitError(arguments: ["ls-files"], status: result.status, stderr: result.stderr) }
+        let entries = result.stdout.split(separator: "\0").map(String.init)
+        return entries.filter { entry in
+            entry.hasSuffix("/") && !entries.contains { $0 != entry && $0.hasPrefix(entry) }
+        }
+    }
 }

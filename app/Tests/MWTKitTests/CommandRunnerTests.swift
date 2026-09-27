@@ -22,7 +22,7 @@ import Testing
 
     @Test func childGetsFixedPathAndExtraEnvironment() throws {
         let r = try runner.run("/bin/sh", ["-c", "echo $PATH; echo $MWT_PROBE"], cwd: nil, extraEnvironment: ["MWT_PROBE": "42"])
-        #expect(r.stdout == "\(ToolEnvironment.path)\n42\n")
+        #expect(r.stdout == "\(ToolEnvironment.fixedPath)\n42\n")
     }
 
     @Test func honoursWorkingDirectory() throws {
@@ -39,15 +39,15 @@ import Testing
     }
 
     @Test func childEnvironmentOverridesPathAndKeepsHomeAndSSHAgent() {
-        let env = ToolEnvironment.childEnvironment(base: ["PATH": "/nope", "SSH_AUTH_SOCK": "/tmp/agent.sock", "HOME": "/Users/x"])
+        let env = ToolEnvironment.fixed.childEnvironment(base: ["PATH": "/nope", "SSH_AUTH_SOCK": "/tmp/agent.sock", "HOME": "/Users/x"])
         #expect(env["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
         #expect(env["SSH_AUTH_SOCK"] == "/tmp/agent.sock")
         #expect(env["HOME"] == "/Users/x")
-        #expect(ToolEnvironment.childEnvironment(base: [:])["HOME"] != nil)
+        #expect(ToolEnvironment.fixed.childEnvironment(base: [:])["HOME"] != nil)
     }
 
     @Test func resolvesAnExistingGitBinary() throws {
-        let git = try #require(ToolEnvironment.resolveGit())
+        let git = try #require(ToolEnvironment.fixed.findExecutable("git"))
         #expect(git.hasSuffix("/git"))
         #expect(FileManager.default.isExecutableFile(atPath: git))
     }

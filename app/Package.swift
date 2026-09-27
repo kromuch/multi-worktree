@@ -11,6 +11,8 @@ let package = Package(
     targets: [
         .target(name: "MWTKit"),
         .executableTarget(name: "MultiWorktree", dependencies: ["MWTKit"]),
+        .executableTarget(name: "MWTDemoSeed", dependencies: ["MWTKit"]),
         .testTarget(name: "MWTKitTests", dependencies: ["MWTKit"]),
+        .testTarget(name: "MultiWorktreeTests", dependencies: ["MultiWorktree", "MWTKit"]),
     ]
 )

@@ -206,3 +206,55 @@ struct FooterBar<Content: View>: View {
         HStack(spacing: 8) { content }
     }
 }
+
+struct NoticeBanner<Actions: View>: View {
+    enum Style {
+        case blocking
+        case warning
+        case info
+    }
+
+    let style: Style
+    let title: String
+    let message: String
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: symbol)
+                    .foregroundStyle(tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.callout.weight(.semibold))
+                    Text(message)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) { actions }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: MWT.cardRadius, style: .continuous))
+    }
+
+    private var tint: Color {
+        switch style {
+        case .blocking: .red
+        case .warning: .orange
+        case .info: .blue
+        }
+    }
+
+    private var symbol: String {
+        switch style {
+        case .blocking: "xmark.octagon.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .info: "arrow.down.circle.fill"
+        }
+    }
+}

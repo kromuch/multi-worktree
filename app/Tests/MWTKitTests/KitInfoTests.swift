@@ -3,8 +3,9 @@ import Testing
 @testable import MWTKit
 
 @Suite struct KitInfoTests {
-    @Test func versionIsSet() {
-        #expect(KitInfo.version == "0.1.0")
+    @Test func versionIsThreePartSemantic() throws {
+        let version = try #require(AppVersion(KitInfo.version))
+        #expect(version.description == KitInfo.version)
     }
 
     @Test func tempDirHelperCreatesDirectory() throws {

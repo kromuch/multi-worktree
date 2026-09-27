@@ -31,7 +31,7 @@ struct SpinUpView: View {
                     }
                 }
                 .buttonStyle(.glass)
-                .disabled(featureText.isEmpty || checking)
+                .disabled(featureText.isEmpty || checking || !model.gitReady)
             }
 
             if let validationError {
@@ -44,10 +44,12 @@ struct SpinUpView: View {
                 }
             }
 
-            Toggle(isOn: $openClaude) {
+            Toggle(isOn: Binding(get: { openClaude && model.claudeAvailable }, set: { openClaude = $0 })) {
                 Label("Open Claude when done", systemImage: "sparkles")
             }
             .toggleStyle(.switch)
+            .disabled(!model.claudeAvailable)
+            .help(model.claudeAvailable ? "Open the Claude session page when spin-up finishes" : AppModel.claudeMissingHelp)
 
             FooterBar {
                 Spacer()
@@ -56,9 +58,11 @@ struct SpinUpView: View {
                 }
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed || anyPreflightBlocked)
+                .disabled(feature == nil || preflights.isEmpty || model.isBusy || mainPreflightFailed || anyPreflightBlocked
+                          || !model.gitReady)
             }
         }
+        .task { await applyPreviewFeature() }
     }
 
     private var mainPreflightFailed: Bool {
@@ -145,6 +149,15 @@ struct SpinUpView: View {
         }
     }
 
+    private func applyPreviewFeature() async {
+        #if DEBUG
+        guard featureText.isEmpty, let name = model.previewFeatureName else { return }
+        featureText = name
+        try? await Task.sleep(for: .milliseconds(150))
+        check()
+        #endif
+    }
+
     private func invalidateCheck() {
         feature = nil
         preflights = [:]
@@ -177,6 +190,7 @@ struct SpinUpView: View {
 
     private func run() async {
         guard let feature else { return }
-        await model.spinUp(group: group, feature: feature, choices: choices, preflights: preflights, openClaude: openClaude)
+        await model.spinUp(group: group, feature: feature, choices: choices, preflights: preflights,
+                            openClaude: openClaude && model.claudeAvailable)
     }
 }

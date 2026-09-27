@@ -19,7 +19,7 @@ struct GitFixture {
     let git: ShellGitClient
 
     static func makeClient() throws -> ShellGitClient {
-        let gitPath = try #require(ToolEnvironment.resolveGit())
+        let gitPath = try #require(ToolEnvironment.fixed.findExecutable("git"))
         return ShellGitClient(gitPath: gitPath, runner: ProcessRunner(), baseEnvironment: environment)
     }
 
